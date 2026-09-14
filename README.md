@@ -13,6 +13,9 @@ which way to turn. **High flyers** filters to aircraft above 28,000 ft — the c
 
 No phone handy? Add `?demo=1` (or tap *Try with pretend planes*) and drag to look around.
 
+Locally: `python3 test/dev-server.py` then open `http://localhost:8765/` — the dev server also proxies the ADS-B
+feeds, so real planes work on a desktop too (drag to look; no camera/compass without HTTPS).
+
 ## Deploy
 
 The app needs HTTPS for the camera and compass. Amplify Hosting gives you that for free on `*.amplifyapp.com`.
@@ -43,19 +46,22 @@ Prefer no long-lived keys? Create an OIDC role and flip to Option B in the workf
 *Why not connect the GitHub repo in the Amplify console?* That works too, but each push then runs a build
 container for ~1 minute ($0.01/min after the first year's 1,000 free minutes). Manual deployments skip that entirely.
 
-### GitHub Pages (also free)
+### GitHub Pages (free, but demo only)
 
 Settings → Pages → Deploy from branch `main`, folder `/ (root)` → `https://devsalvi.github.io/flighttracker/`.
+Pages can't proxy `/adsb/…`, so only pretend planes work there; live data needs Amplify (or any host with a reverse proxy).
 
 On the phone: Share → **Add to Home Screen** for a full-screen app icon.
 
 ## How it works
 
-- **Data**: polls [airplanes.live](https://airplanes.live) (falls back to [adsb.lol](https://adsb.lol)) every 4 s
-  for aircraft within the search radius (default 100 nm). Both are free community ADS-B feeds with
-  CORS enabled. Positions lag a few seconds, so each aircraft is dead-reckoned to "now" from its last
-  position, ground speed, track and vertical rate.
-- **Routes** ("Amsterdam → Orlando"): looked up by callsign from adsb.lol's `routeset` API, cached per flight.
+- **Data**: polls [adsb.lol](https://adsb.lol) (falls back to [adsb.fi](https://adsb.fi)) every 4 s
+  for aircraft within the search radius (default 100 nm). Both are free community ADS-B feeds, but neither
+  sends CORS headers, so the page fetches `/adsb/lol/…` and `/adsb/fi/…` on its own origin and the host proxies
+  them (Amplify reverse-proxy rules in `infra/custom-rules.json`; `test/dev-server.py` locally). Positions lag a
+  few seconds, so each aircraft is dead-reckoned to "now" from its last position, ground speed, track and vertical rate.
+- **Routes** ("Amsterdam → Orlando"): looked up by callsign from [adsb.im](https://adsb.im)'s `routeset` API
+  (the same service adsb.lol runs, with CORS), cached per flight.
 - **Where is the phone pointing**: `DeviceOrientationEvent` (absolute on Android, `webkitCompassHeading` on iOS)
   → W3C rotation matrix → camera forward/right/up vectors in an East-North-Up frame.
 - **Where is the plane**: observer and aircraft positions → ECEF → ENU → azimuth/elevation/range.
@@ -72,6 +78,7 @@ On the phone: Share → **Add to Home Screen** for a full-screen app icon.
   Mode throttles sensor events. Hold the phone in portrait.
 - Field of view defaults to 50° horizontal (typical main camera in portrait). If labels drift as you tilt, adjust it in ⚙︎.
 - Free feeds rate-limit; if a source fails the app falls back to the next one and shows "offline" in ⚙︎.
+  airplanes.live was dropped: it now returns 403 unless you email them for access.
 - Aircraft without ADS-B (some military, some older GA) never appear. Birds also do not appear.
 
 ## Roadmap

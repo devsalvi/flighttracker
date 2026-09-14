@@ -9,3 +9,7 @@ customHeaders:
         value: public, max-age=300
       - key: Permissions-Policy
         value: camera=(self), geolocation=(self), gyroscope=(self), magnetometer=(self), accelerometer=(self)
+  - pattern: '/adsb/**'
+    headers:
+      - key: Cache-Control
+        value: no-store

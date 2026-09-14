@@ -1,0 +1,4 @@
+[
+  { "source": "/adsb/lol/<*>", "target": "https://api.adsb.lol/<*>",     "status": "200" },
+  { "source": "/adsb/fi/<*>",  "target": "https://opendata.adsb.fi/<*>", "status": "200" }
+]

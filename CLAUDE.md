@@ -24,10 +24,14 @@ Pipeline per animation frame: **sensors → camera basis → per-aircraft ENU di
 
 - **Sensors**: `onOrient` normalises `deviceorientation`/`deviceorientationabsolute`; on iOS `webkitCompassHeading`
   is converted to `alpha = 360 - heading`. `startGeolocation` uses `watchPosition`; falls back to MCO coordinates.
-- **Data**: `poll()` hits `SOURCES` in order (airplanes.live, then adsb.lol) `/v2/point/{lat}/{lon}/{radius_nm}`,
-  readsb JSON (`ac[]` with `hex, flight, r, t, desc, lat, lon, alt_baro, alt_geom, gs, track, baro_rate, seen_pos`).
-  `ingest()` normalises into `S.aircraft` (Map by hex). Routes come from `ROUTE_API` (adsb.lol `routeset`, POST
-  `{planes:[{callsign,lat,lng}]}`), cached in `S.routes` (`null` = looked up, unknown).
+- **Data**: `poll()` hits `SOURCES` in order — same-origin paths `/adsb/lol/v2/point/{lat}/{lon}/{nm}` (adsb.lol)
+  then `/adsb/fi/api/v2/lat/{lat}/lon/{lon}/dist/{nm}` (adsb.fi). The feeds send **no CORS headers**, so the host must
+  proxy those prefixes: Amplify does it via reverse-proxy rules (`infra/custom-rules.json`, applied by `deploy.sh`),
+  `test/dev-server.py` does it locally. Both return readsb JSON (`ac[]` or `aircraft[]` with `hex, flight, r, t, desc,
+  lat, lon, alt_baro, alt_geom, gs, track, baro_rate, seen_pos`; `now` is ms on adsb.lol, **seconds** on adsb.fi —
+  `ingest()` normalises). `ingest()` fills `S.aircraft` (Map by hex). Routes come from `ROUTE_API` (adsb.im `routeset`,
+  POST `{planes:[{callsign,lat,lng}]}`, CORS `*`; response rows have `callsign, airport_codes ("KMCO-KHOU" or "unknown"),
+  _airports[] {iata, icao, location, name}, plausible`), cached in `S.routes` (`null` = looked up, unknown).
 - **Geometry**: `propagate()` dead-reckons from `posAt` using gs/track/vertical rate (capped at 90 s).
   `ecef()`/`enu()` give azimuth, elevation, range in an East-North-Up frame — earth curvature is correct by construction.
   `cameraBasis()` builds forward/right/up from the W3C rotation matrix `Rz(α)·Rx(β)·Ry(γ)` (columns = device axes),
@@ -44,24 +48,35 @@ State lives in `S`; user settings in `settings` (offset, fov, radius, demo, debu
 
 ## Running and testing
 
-- Local: `python3 -m http.server 8765` then `http://localhost:8765/?demo=1` (camera/compass need HTTPS, demo doesn't).
-- Headless smoke test: `node test/smoke.js` (needs `npm i -D playwright` once; uses the demo, drags to aim at the
-  first plane, asserts the card shows "Delta 88", saves screenshots to `test/out/`). Run it after any change to
-  geometry, projection or the card. There are no unit tests; the smoke test is the regression check.
+- Local: `python3 test/dev-server.py` then `http://localhost:8765/` (real planes via the built-in proxy, drag to look)
+  or `?demo=1` for pretend planes. Camera/compass need HTTPS, so on a desktop it's data + drag only.
+- Headless smoke test: `node test/smoke.js` with the dev server running (needs `npm i -D playwright && npx playwright
+  install chromium` once; uses the demo, drags to aim at the first plane, asserts the card shows "Delta 88", saves
+  screenshots to `test/out/`). Run it after any change to geometry, projection or the card. There are no unit tests;
+  the smoke test is the regression check. It passes as of 2026-09-14.
 - Phone: deploy (or GitHub Pages) and open the HTTPS URL. Turn on ⚙︎ → "Show debug numbers" to see
   observer, α/β/γ, camera az/el, lock candidate and source status.
 
 ## Verified vs. unverified — important
 
-The cloud sandbox that wrote v0 could not reach the ADS-B APIs or AWS, so the following are **from documentation
-memory, not from a live call**. First thing to do on a phone is confirm them; each is a one-line fix if wrong:
+Checked live on 2026-09-14 from a desktop (curl + real Chrome):
 
-1. airplanes.live / adsb.lol `/v2/point` respond with CORS `*` and the field names above.
-2. adsb.lol `routeset` request/response shape (`_airports[]` with `iata`, `location`, `name`; `airport_codes`).
-3. iOS compass sign: if labels move the *wrong way* as you pan (mirrored, not merely offset), flip the sign in
+1. ✅ **Feeds**: airplanes.live now returns 403 for unregistered clients (they want an email) — dropped. adsb.lol and
+   adsb.fi work and have the fields above, but **neither sends `Access-Control-Allow-Origin`**, so a browser can't call
+   them cross-origin. Hence the same-origin `/adsb/…` proxy paths (see *Data* above). Verified locally through
+   `test/dev-server.py`; the Amplify reverse-proxy rules are written but **not yet deployed/verified** (the deploy from
+   this session was not permitted — run `./infra/deploy.sh`, then `curl https://main.<app-id>.amplifyapp.com/adsb/lol/v2/point/28.43/-81.31/50`
+   should return JSON with `ac[]`, and fetching it twice should give different `now` values, i.e. no CDN caching).
+2. ✅ **Routes**: adsb.lol's `/api/0/routeset` is broken (HTTP 201, empty text/html). adsb.im's identical endpoint works
+   with CORS `*`; shape confirmed and handled (incl. `airport_codes: "unknown"` for GA).
+3. ❓ iOS compass sign: if labels move the *wrong way* as you pan (mirrored, not merely offset), flip the sign in
    `onOrient` (`alpha = e.webkitCompassHeading` instead of `360 - …`). A constant offset is expected — use tap-to-calibrate.
-4. Default FOV 50° is a guess for a phone main camera in portrait; tune in ⚙︎, then change the default in `settings`.
-5. Amplify manual-deploy CLI flow in `infra/deploy.sh` (`create-deployment` → PUT zip to `zipUploadUrl` → `start-deployment`).
+4. ❓ Default FOV 50° is a guess for a phone main camera in portrait; tune in ⚙︎, then change the default in `settings`.
+5. ❓ Amplify manual-deploy CLI flow in `infra/deploy.sh` (`create-deployment` → PUT zip to `zipUploadUrl` →
+   `start-deployment`) and the reverse-proxy rules — no `whats-that-plane` app exists in the account yet; first run creates it.
+
+Items 3–5 still need a phone / a deploy. Also verified: the smoke test needed `touch-action: none` on `#overlay`
+(touch drags were being cancelled by the browser — this would have hit real phones too).
 
 ## Conventions
 

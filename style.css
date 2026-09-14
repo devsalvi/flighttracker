@@ -37,7 +37,7 @@ button.link { background: none; border: 0; color: var(--accent-2); text-decorati
 /* ---------- AR ---------- */
 #ar { background: #000; }
 #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-#overlay { position: absolute; inset: 0; overflow: hidden; }
+#overlay { position: absolute; inset: 0; overflow: hidden; touch-action: none; }   /* no browser pan/zoom: drag-to-look + tap must reach us */
 
 /* reticle in the middle */
 #overlay::before { content: ""; position: absolute; left: 50%; top: 50%; width: 120px; height: 120px;

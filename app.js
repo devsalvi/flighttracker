@@ -4,11 +4,14 @@
   'use strict';
 
   // ------------------------------------------------------------------ config
+  // Position feeds send no CORS headers (verified 2026-09: adsb.lol, adsb.fi; airplanes.live now needs an
+  // approved key), so the browser can't call them directly. The page fetches same-origin paths instead and
+  // the host proxies them: Amplify reverse-proxy rules in infra/custom-rules.json, test/dev-server.py locally.
   const SOURCES = [
-    { name: 'airplanes.live', url: (lat, lon, r) => `https://api.airplanes.live/v2/point/${lat}/${lon}/${r}` },
-    { name: 'adsb.lol',       url: (lat, lon, r) => `https://api.adsb.lol/v2/point/${lat}/${lon}/${r}` },
+    { name: 'adsb.lol', url: (lat, lon, r) => `/adsb/lol/v2/point/${lat}/${lon}/${r}` },
+    { name: 'adsb.fi',  url: (lat, lon, r) => `/adsb/fi/api/v2/lat/${lat}/lon/${lon}/dist/${r}` },
   ];
-  const ROUTE_API = 'https://api.adsb.lol/api/0/routeset';
+  const ROUTE_API = 'https://adsb.im/api/0/routeset';   // same routeset API as adsb.lol's, but with CORS * (adsb.lol's is broken)
   const POLL_MS = 4000;          // ADS-B poll interval
   const LOCK_CONE_DEG = 14;      // how close to screen centre an aircraft must be to get "locked"
   const HIGH_FT = 28000;         // "High flyers" filter threshold (contrail territory)
@@ -162,6 +165,7 @@
 
   function ingest(list, source, serverNow) {
     const now = Date.now();
+    if (serverNow && serverNow < 1e12) serverNow *= 1000;   // adsb.fi reports seconds, readsb (adsb.lol) milliseconds
     const skew = serverNow ? now - serverNow : 0;   // server "now" may lag; normalise to local clock
     const seen = new Set();
     for (const a of list) {
@@ -203,7 +207,7 @@
       const j = await r.json();
       for (const row of (Array.isArray(j) ? j : [])) {
         const ap = row._airports || [];
-        const codes = (row.airport_codes || '').split('-').filter(Boolean);
+        const codes = (row.airport_codes || '').split('-').filter((c) => c && c !== 'unknown');   // "unknown" for GA/unrouted
         const from = ap[0] || {}, to = ap[ap.length - 1] || {};
         if (!row.callsign) continue;
         S.routes.set(row.callsign, {

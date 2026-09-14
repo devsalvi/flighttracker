@@ -19,10 +19,12 @@ if [[ -z "$APP_ID" || "$APP_ID" == "None" ]]; then
   APP_ID="$(aws amplify create-app --name "$APP_NAME" --platform WEB \
       --description "What's That Plane? - AR flight tracker (manual deploys, no builds)" \
       --custom-headers "$(cat infra/custom-headers.yml)" \
+      --custom-rules file://infra/custom-rules.json \
       --query 'app.appId' --output text)"
 else
   echo "▸ using Amplify app $APP_NAME ($APP_ID)"
-  aws amplify update-app --app-id "$APP_ID" --custom-headers "$(cat infra/custom-headers.yml)" >/dev/null
+  aws amplify update-app --app-id "$APP_ID" --custom-headers "$(cat infra/custom-headers.yml)" \
+      --custom-rules file://infra/custom-rules.json >/dev/null
 fi
 
 # --- 2. branch ----------------------------------------------------------------------------------------
