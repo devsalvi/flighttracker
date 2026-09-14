@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>What's That Plane?</title>
+  <meta name="description" content="Point your phone at a plane and find out which flight it is." />
+  <meta name="theme-color" content="#0b1020" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="That Plane" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== Start screen ===== -->
+  <section id="start" class="screen">
+    <div class="start-inner">
+      <div class="logo">✈️</div>
+      <h1>What's that plane?</h1>
+      <p>Point your phone at a plane in the sky and find out where it's going.</p>
+      <button id="btn-start" class="big">Start looking</button>
+      <p class="fine">Needs your camera, compass and location. Nothing leaves your phone except a request for nearby planes.</p>
+      <button id="btn-demo" class="link">Try with pretend planes</button>
+      <p id="start-error" class="error" hidden></p>
+    </div>
+  </section>
+
+  <!-- ===== AR screen ===== -->
+  <section id="ar" class="screen" hidden>
+    <video id="cam" autoplay muted playsinline></video>
+    <div id="overlay"></div>
+
+    <div id="topbar">
+      <div id="status" class="pill">starting…</div>
+      <div class="chips">
+        <button class="chip on" data-filter="all">All planes</button>
+        <button class="chip" data-filter="high">High flyers</button>
+      </div>
+      <button id="btn-settings" class="round" aria-label="Settings">⚙︎</button>
+    </div>
+
+    <div id="hint" class="hint" hidden></div>
+
+    <div id="card" hidden>
+      <div class="card-head">
+        <div class="card-title"><span id="c-airline">—</span> <span id="c-flight"></span></div>
+        <button id="btn-speak" class="round small" aria-label="Read aloud">🔊</button>
+      </div>
+      <div id="c-route" class="card-route">—</div>
+      <div class="card-facts">
+        <div><b id="c-alt">—</b><span>high</span></div>
+        <div><b id="c-dist">—</b><span>away</span></div>
+        <div><b id="c-speed">—</b><span>speed</span></div>
+        <div><b id="c-type">—</b><span>plane</span></div>
+      </div>
+      <div id="c-kid" class="card-kid"></div>
+    </div>
+
+    <div id="settings" class="sheet" hidden>
+      <div class="sheet-head">
+        <b>Settings</b>
+        <button id="btn-settings-close" class="round small" aria-label="Close">✕</button>
+      </div>
+      <label>Compass fix <span id="v-offset">0°</span>
+        <input id="s-offset" type="range" min="-180" max="180" step="1" value="0" />
+      </label>
+      <p class="fine">Labels sitting to the left or right of the real plane? Tap the plane on screen to auto-fix, or slide this.</p>
+      <label>Camera zoom / field of view <span id="v-fov">50°</span>
+        <input id="s-fov" type="range" min="25" max="90" step="1" value="50" />
+      </label>
+      <label>Search radius <span id="v-radius">100 nm</span>
+        <input id="s-radius" type="range" min="25" max="250" step="5" value="100" />
+      </label>
+      <label class="row"><input id="s-demo" type="checkbox" /> Pretend planes (demo)</label>
+      <label class="row"><input id="s-debug" type="checkbox" /> Show debug numbers</label>
+      <div id="debug" class="fine mono" hidden></div>
+      <p class="fine">Data: <span id="v-source">—</span>. Free community ADS-B feeds; positions can lag a few seconds.</p>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
