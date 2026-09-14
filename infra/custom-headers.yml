@@ -1,0 +1,11 @@
+customHeaders:
+  - pattern: '**/*.webmanifest'
+    headers:
+      - key: Content-Type
+        value: application/manifest+json
+  - pattern: '**/*'
+    headers:
+      - key: Cache-Control
+        value: public, max-age=300
+      - key: Permissions-Policy
+        value: camera=(self), geolocation=(self), gyroscope=(self), magnetometer=(self), accelerometer=(self)

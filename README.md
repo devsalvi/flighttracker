@@ -13,15 +13,41 @@ which way to turn. **High flyers** filters to aircraft above 28,000 ft — the c
 
 No phone handy? Add `?demo=1` (or tap *Try with pretend planes*) and drag to look around.
 
-## Deploy (GitHub Pages)
+## Deploy
 
-The app needs HTTPS for the camera and compass. GitHub Pages is the easiest:
+The app needs HTTPS for the camera and compass. Amplify Hosting gives you that for free on `*.amplifyapp.com`.
 
-1. Repo → **Settings → Pages → Build and deployment → Source: Deploy from a branch**, branch `main`, folder `/ (root)`.
-2. Wait a minute, then open `https://devsalvi.github.io/flighttracker/` on your phone.
-3. Share → **Add to Home Screen** to get a full-screen app icon.
+### AWS Amplify — manual deployments (the cheapest way to use Amplify)
 
-Any static host works (Vercel, Netlify, Amplify) — it's just files.
+`infra/deploy.sh` zips the six site files and pushes them straight to Amplify Hosting as a **manual deployment**:
+no Git connection, no build container, so **zero build minutes are billed**. What's left is storage
+(~250 KB → $0.00) and data served ($0.15/GB after the 15 GB/month free tier in year one). For a pet project that
+is $0.00–0.05/month. No Route 53, no ACM, no CloudFront to manage.
+
+**Automatic (recommended):** every push to `main` runs `.github/workflows/deploy.yml`, which calls the same script.
+
+1. In IAM create a user `flighttracker-deploy` (no console access) with the policy in `infra/deploy-policy.json`,
+   and create an access key for it.
+2. In the GitHub repo → Settings → Secrets and variables → Actions, add secrets `AWS_ACCESS_KEY_ID` and
+   `AWS_SECRET_ACCESS_KEY` (optional variable `AWS_REGION`, default `us-east-1`).
+3. Push. The job summary shows the URL: `https://main.<app-id>.amplifyapp.com/`. Live within a minute.
+
+Prefer no long-lived keys? Create an OIDC role and flip to Option B in the workflow.
+
+**Manual:** with the AWS CLI configured locally, `./infra/deploy.sh` does the same thing from your machine.
+
+**Custom domain later:** Amplify console → App settings → Domain management; the certificate is free.
+
+**Tear down:** `aws amplify delete-app --app-id <id>` — nothing else is created.
+
+*Why not connect the GitHub repo in the Amplify console?* That works too, but each push then runs a build
+container for ~1 minute ($0.01/min after the first year's 1,000 free minutes). Manual deployments skip that entirely.
+
+### GitHub Pages (also free)
+
+Settings → Pages → Deploy from branch `main`, folder `/ (root)` → `https://devsalvi.github.io/flighttracker/`.
+
+On the phone: Share → **Add to Home Screen** for a full-screen app icon.
 
 ## How it works
 

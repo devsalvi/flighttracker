@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AmplifyManualDeploys",
+      "Effect": "Allow",
+      "Action": [
+        "amplify:ListApps", "amplify:GetApp", "amplify:CreateApp", "amplify:UpdateApp",
+        "amplify:GetBranch", "amplify:CreateBranch", "amplify:ListBranches",
+        "amplify:CreateDeployment", "amplify:StartDeployment", "amplify:GetJob", "amplify:ListJobs"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
