@@ -210,11 +210,12 @@
         const codes = (row.airport_codes || '').split('-').filter((c) => c && c !== 'unknown');   // "unknown" for GA/unrouted
         const from = ap[0] || {}, to = ap[ap.length - 1] || {};
         if (!row.callsign) continue;
-        S.routes.set(row.callsign, {
-          from: from.iata || codes[0] || '', to: to.iata || codes[codes.length - 1] || '',
+        const fromCode = from.iata || codes[0] || '', toCode = to.iata || codes[codes.length - 1] || '';
+        S.routes.set(row.callsign, fromCode && toCode ? {
+          from: fromCode, to: toCode,
           fromCity: from.location || from.name || '', toCity: to.location || to.name || '',
           plausible: row.plausible !== 0 && row.plausible !== false,
-        });
+        } : null);                                          // null = looked up, no route known (most GA)
       }
       batch.forEach((c) => { if (!S.routes.has(c)) S.routes.set(c, null); });   // remember misses
     } catch (e) {
@@ -409,7 +410,9 @@
 
   function kidSentence(a, lock, r) {
     const al = airline(a.callsign);
-    const who = al.number ? `${al.name} flight ${al.number}` : (al.name !== 'Unknown airline' ? `a ${al.name} plane` : `a plane`);
+    const who = al.number ? `${al.name} flight ${al.number}`
+      : al.name === 'Private plane' ? 'a private plane'
+      : al.name !== 'Unknown airline' ? `a ${al.name} plane` : 'a plane';
     const what = typeName(a);
     const where = r && r.from ? ` flying from ${r.fromCity || r.from} to ${r.toCity || r.to}` : '';
     const miles = lock.p.altFt / 5280;
