@@ -13,7 +13,8 @@ export AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 export AWS_PAGER=""
 
 # --- 1. app (create once, reuse afterwards) ---------------------------------------------------------
-APP_ID="$(aws amplify list-apps --query "apps[?name=='$APP_NAME'].appId | [0]" --output text)"
+# (no "| [0]": the CLI paginates list-apps and would emit one "None" per page)
+APP_ID="$(aws amplify list-apps --query "apps[?name=='$APP_NAME'].appId" --output text | tr -s '[:space:]' ' ' | awk '{print $1}')"
 if [[ -z "$APP_ID" || "$APP_ID" == "None" ]]; then
   echo "▸ creating Amplify app $APP_NAME"
   APP_ID="$(aws amplify create-app --name "$APP_NAME" --platform WEB \
@@ -31,7 +32,7 @@ fi
 if ! aws amplify get-branch --app-id "$APP_ID" --branch-name "$BRANCH" >/dev/null 2>&1; then
   echo "▸ creating branch $BRANCH"
   aws amplify create-branch --app-id "$APP_ID" --branch-name "$BRANCH" --stage PRODUCTION \
-    --enable-auto-build false >/dev/null
+    --no-enable-auto-build >/dev/null
 fi
 
 # --- 3. zip just the site files (index.html must be at the zip root) ---------------------------------

@@ -54,29 +54,30 @@ State lives in `S`; user settings in `settings` (offset, fov, radius, demo, debu
   install chromium` once; uses the demo, drags to aim at the first plane, asserts the card shows "Delta 88", saves
   screenshots to `test/out/`). Run it after any change to geometry, projection or the card. There are no unit tests;
   the smoke test is the regression check. It passes as of 2026-09-14.
-- Phone: deploy (or GitHub Pages) and open the HTTPS URL. Turn on ⚙︎ → "Show debug numbers" to see
+- Phone: open https://main.dul2l469locqb.amplifyapp.com/ (redeploy with `./infra/deploy.sh`). Turn on ⚙︎ → "Show debug numbers" to see
   observer, α/β/γ, camera az/el, lock candidate and source status.
 
 ## Verified vs. unverified — important
 
-Checked live on 2026-09-14 from a desktop (curl + real Chrome):
+Checked live on 2026-09-14 (curl, real Chrome, Playwright, and a real Amplify deploy):
 
 1. ✅ **Feeds**: airplanes.live now returns 403 for unregistered clients (they want an email) — dropped. adsb.lol and
    adsb.fi work and have the fields above, but **neither sends `Access-Control-Allow-Origin`**, so a browser can't call
-   them cross-origin. Hence the same-origin `/adsb/…` proxy paths (see *Data* above). Verified locally through
-   `test/dev-server.py`; the Amplify reverse-proxy rules are written but **not yet deployed/verified** (the deploy from
-   this session was not permitted — run `./infra/deploy.sh`, then `curl https://main.<app-id>.amplifyapp.com/adsb/lol/v2/point/28.43/-81.31/50`
-   should return JSON with `ac[]`, and fetching it twice should give different `now` values, i.e. no CDN caching).
+   them cross-origin. Hence the same-origin `/adsb/…` proxy paths (see *Data* above). Verified both locally through
+   `test/dev-server.py` and on Amplify: `/adsb/lol/…` and `/adsb/fi/…` return JSON, `Cache-Control: no-store`,
+   `x-cache: Miss from cloudfront`, `now` changes between calls. adsb.lol 429s under a burst; fallback to adsb.fi
+   and recovery back to adsb.lol both observed.
 2. ✅ **Routes**: adsb.lol's `/api/0/routeset` is broken (HTTP 201, empty text/html). adsb.im's identical endpoint works
-   with CORS `*`; shape confirmed and handled (incl. `airport_codes: "unknown"` for GA).
+   with CORS `*`; shape confirmed and handled (incl. `airport_codes: "unknown"` for GA → `null` route).
 3. ❓ iOS compass sign: if labels move the *wrong way* as you pan (mirrored, not merely offset), flip the sign in
    `onOrient` (`alpha = e.webkitCompassHeading` instead of `360 - …`). A constant offset is expected — use tap-to-calibrate.
 4. ❓ Default FOV 50° is a guess for a phone main camera in portrait; tune in ⚙︎, then change the default in `settings`.
-5. ❓ Amplify manual-deploy CLI flow in `infra/deploy.sh` (`create-deployment` → PUT zip to `zipUploadUrl` →
-   `start-deployment`) and the reverse-proxy rules — no `whats-that-plane` app exists in the account yet; first run creates it.
+5. ✅ **Deploy**: `infra/deploy.sh` works end to end (two bugs fixed: paginated `list-apps` query, `--no-enable-auto-build`).
+   App `whats-that-plane` = `dul2l469locqb`, us-east-1, **https://main.dul2l469locqb.amplifyapp.com/**. It was deployed
+   from a local root-credential CLI; the GitHub workflow still needs the `flighttracker-deploy` IAM user + repo secrets.
 
-Items 3–5 still need a phone / a deploy. Also verified: the smoke test needed `touch-action: none` on `#overlay`
-(touch drags were being cancelled by the browser — this would have hit real phones too).
+Items 3–4 need a phone. Also fixed: `touch-action: none` on `#overlay` (touch drags were being cancelled by the
+browser — the smoke test caught it and it would have hit real phones too).
 
 ## Conventions
 

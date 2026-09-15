@@ -5,7 +5,7 @@ tracker: camera + compass + GPS + free ADS-B data, in one static page. No build 
 
 ## Try it
 
-Open the deployed page on your phone (see *Deploy*), tap **Start looking**, allow camera,
+Open https://main.dul2l469locqb.amplifyapp.com/ on your phone, tap **Start looking**, allow camera,
 motion/compass and location, then point at the sky. The plane nearest the dashed circle gets a
 big yellow label and a card with the airline, flight number, route, altitude, distance, speed and
 aircraft type. Tap 🔊 to have it read aloud. Planes off-screen show as edge arrows telling you
