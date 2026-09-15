@@ -68,9 +68,12 @@ On the phone: Share → **Add to Home Screen** for a full-screen app icon.
   Earth curvature is handled for free by doing it in ECEF (matters for high-altitude aircraft far away).
 - **Matching**: every aircraft direction is projected through the camera's field of view. The one closest to
   the screen centre within a 14° cone is "locked" (with a little hysteresis so it doesn't flicker).
-- **Compass fix**: phone compasses are routinely 10–20° off. Tap the real plane on screen and the app finds the
-  ADS-B aircraft with the matching *elevation* (which the compass can't get wrong) and shifts the heading to match.
-  The offset is remembered. There's also a manual slider in ⚙︎.
+- **Compass fix**: phone compasses are routinely 10–20° off, and then the app happily locks onto the *neighbouring*
+  flight. Tap the real plane on screen and the app finds the ADS-B aircraft with the matching *elevation* (which the
+  compass can't get wrong) and shifts the heading to match. The offset is remembered. There's also a manual slider
+  in ⚙︎, and a "labels slide the wrong way" switch if the compass turns out to be mirrored on your phone.
+- **Smooth tracking**: the gyro gives the pose (instant, smooth), the compass only corrects slow yaw drift through a
+  low-pass filter, so labels don't jitter or flip when the phone is held upright.
 
 ## Known limits
 

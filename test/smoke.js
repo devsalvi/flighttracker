@@ -31,13 +31,40 @@ fs.mkdirSync(OUT, { recursive: true });
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(OUT, '2-locked.png') });
 
-  const card = await page.evaluate(() => (document.getElementById('card').hidden ? null : document.getElementById('card').innerText));
+  const readCard = () => page.evaluate(() => (document.getElementById('card').hidden ? null : document.getElementById('card').innerText));
+  const card = await readCard();
   const markers = await page.evaluate(() => [...document.querySelectorAll('.marker')].map((m) => m.innerText.trim()));
   const status = await page.textContent('#status');
+  const dragOk = !errors.length && card && /Delta\s*88/.test(card) && /Amsterdam/.test(card) && markers.includes('DAL88');
+
+  // Scenario 2: phone sensors (iOS style: relative alpha + webkitCompassHeading). Point the phone at DAL88's
+  // elevation (beta = 90 + el) but with a compass that reads 30° too high: the app locks the wrong plane (SWA1234,
+  // 12° off). Tap the plane at screen centre (where it "really" is) -> tap-to-calibrate must shift the heading
+  // by -30 and lock DAL88.
+  const orient = (heading, beta) => page.evaluate(([heading, beta]) => {
+    const e = new Event('deviceorientation');
+    Object.assign(e, { alpha: 123, beta, gamma: 0, absolute: false, webkitCompassHeading: heading });
+    window.dispatchEvent(e);
+  }, [heading, beta]);
+  await page.reload();
+  await page.click('#btn-demo');
+  await page.waitForTimeout(300);
+  for (let i = 0; i < 20; i++) { await orient(20 + 30, 90 + 14.7); await page.waitForTimeout(30); }
+  const before = { status: await page.textContent('#status'), card: await readCard() };
+  await page.evaluate(() => {
+    const ov = document.getElementById('overlay');
+    ov.dispatchEvent(new PointerEvent('pointerdown', { clientX: ov.clientWidth / 2, clientY: ov.clientHeight / 2, bubbles: true }));
+  });
+  for (let i = 0; i < 20; i++) { await orient(20 + 30, 90 + 14.7); await page.waitForTimeout(30); }
+  await page.screenshot({ path: path.join(OUT, '3-sensor-calibrated.png') });
+  const after = { status: await page.textContent('#status'), card: await readCard(), offset: await page.textContent('#v-offset') };
+  const sensorOk = !errors.length && /NE 15°/.test(before.status) && !/Delta/.test(before.card || '') && /N 15°/.test(after.status)
+    && after.card && /Delta\s*88/.test(after.card) && after.offset === '-30°';
 
   await browser.close();
 
-  const ok = !errors.length && card && /Delta\s*88/.test(card) && /Amsterdam/.test(card) && markers.includes('DAL88');
-  console.log(JSON.stringify({ ok, status, markers, card: card && card.replace(/\n+/g, ' | '), errors }, null, 2));
+  const ok = dragOk && sensorOk;
+  console.log(JSON.stringify({ ok, dragOk, sensorOk, status, markers, card: card && card.replace(/\n+/g, ' | '),
+    sensor: { before: { ...before, card: before.card && before.card.split('\n')[0] }, after: { ...after, card: after.card && after.card.split('\n')[0] } }, errors }, null, 2));
   process.exit(ok ? 0 : 1);
 })();

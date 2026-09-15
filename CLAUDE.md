@@ -22,8 +22,14 @@ Deploy plumbing: `infra/deploy.sh` (Amplify manual deployment — zip upload, no
 
 Pipeline per animation frame: **sensors → camera basis → per-aircraft ENU direction → project → pick lock → DOM**.
 
-- **Sensors**: `onOrient` normalises `deviceorientation`/`deviceorientationabsolute`; on iOS `webkitCompassHeading`
-  is converted to `alpha = 360 - heading`. `startGeolocation` uses `watchPosition`; falls back to MCO coordinates.
+- **Sensors**: `onOrient` stores raw `alpha/beta/gamma` from `deviceorientation`/`deviceorientationabsolute` plus iOS's
+  `webkitCompassHeading` as `heading`. The three Euler angles are kept as a set (near an upright pose alpha and gamma
+  jump together, so substituting the compass into alpha breaks the pose — that was v0's bug). `cameraBasis()` builds
+  the frame from the gyro angles, then, if a compass heading exists, rotates the whole frame about *up* by
+  `S.yawFix` = low-passed (heading − azimuth of the same reference vector in the gyro frame). The reference is the
+  phone's top edge when flat-ish and the back camera when upright, which is what iOS's heading follows. Panning is
+  instant (gyro); the compass only removes drift. `settings.offset` (clockwise degrees) and `settings.mirror`
+  (flip heading sign) are applied there too. `startGeolocation` uses `watchPosition`; falls back to MCO coordinates.
 - **Data**: `poll()` hits `SOURCES` in order — same-origin paths `/adsb/lol/v2/point/{lat}/{lon}/{nm}` (adsb.lol)
   then `/adsb/fi/api/v2/lat/{lat}/lon/{lon}/dist/{nm}` (adsb.fi). The feeds send **no CORS headers**, so the host must
   proxy those prefixes: Amplify does it via reverse-proxy rules (`infra/custom-rules.json`, applied by `deploy.sh`),
@@ -39,7 +45,9 @@ Pipeline per animation frame: **sensors → camera basis → per-aircraft ENU di
   as the *horizontal* FOV (portrait short side); vertical FOV follows aspect ratio.
 - **Lock**: nearest-to-centre aircraft within `LOCK_CONE_DEG` (14°), sticky to the previous lock to avoid flicker.
 - **Calibration**: `onTap()` — direction under the finger → best ADS-B candidate by *elevation* (compass can't get
-  elevation wrong) → adjust `settings.offset` (persisted in `localStorage.settings`).
+  elevation wrong) → `settings.offset += (plane az − tapped az)` (persisted in `localStorage.settings`; `v: 2` because
+  v0 stored it with the opposite sign and tapping made things worse). With a compass error of a few degrees the app
+  locks a *neighbouring* flight rather than none — one tap on the real plane fixes it.
 - **Demo**: `demoAircraft()` synthesises six planes orbiting the observer; `?demo=1` or the start-screen link.
   Without a compass (desktop) the app falls back to drag-to-look (`S.mouseLook`).
 - **Lookups**: `AIRLINES` (ICAO 3-letter → name) and `TYPES` (ICAO type → friendly name); `desc` from the feed is the fallback.
@@ -51,8 +59,9 @@ State lives in `S`; user settings in `settings` (offset, fov, radius, demo, debu
 - Local: `python3 test/dev-server.py` then `http://localhost:8765/` (real planes via the built-in proxy, drag to look)
   or `?demo=1` for pretend planes. Camera/compass need HTTPS, so on a desktop it's data + drag only.
 - Headless smoke test: `node test/smoke.js` with the dev server running (needs `npm i -D playwright && npx playwright
-  install chromium` once; uses the demo, drags to aim at the first plane, asserts the card shows "Delta 88", saves
-  screenshots to `test/out/`). Run it after any change to geometry, projection or the card. There are no unit tests;
+  install chromium` once). Two scenarios on the demo: (1) desktop drag-look aims at DAL88 and the card must say
+  "Delta 88"; (2) synthetic iOS sensor events (relative alpha + `webkitCompassHeading` 30° wrong) lock the wrong plane,
+  then a tap at screen centre must calibrate to −30° and lock DAL88. Screenshots go to `test/out/`. Run it after any change to geometry, projection or the card. There are no unit tests;
   the smoke test is the regression check. It passes as of 2026-09-14.
 - Phone: open https://main.dul2l469locqb.amplifyapp.com/ (redeploy with `./infra/deploy.sh`). Turn on ⚙︎ → "Show debug numbers" to see
   observer, α/β/γ, camera az/el, lock candidate and source status.
@@ -69,8 +78,10 @@ Checked live on 2026-09-14 (curl, real Chrome, Playwright, and a real Amplify de
    and recovery back to adsb.lol both observed.
 2. ✅ **Routes**: adsb.lol's `/api/0/routeset` is broken (HTTP 201, empty text/html). adsb.im's identical endpoint works
    with CORS `*`; shape confirmed and handled (incl. `airport_codes: "unknown"` for GA → `null` route).
-3. ❓ iOS compass sign: if labels move the *wrong way* as you pan (mirrored, not merely offset), flip the sign in
-   `onOrient` (`alpha = e.webkitCompassHeading` instead of `360 - …`). A constant offset is expected — use tap-to-calibrate.
+3. ❓ iOS compass sign: if labels move the *wrong way* as you pan (mirrored, not merely offset), turn on ⚙︎ →
+   "Labels slide the wrong way when I turn" (`settings.mirror`) — no code change needed. A constant offset is expected —
+   tap the plane. Also unverified: what iOS's heading follows when the phone is tilted *past* vertical (looking steeply
+   up); `cameraBasis()` assumes the back camera. Debug numbers show `hdg` (raw compass) and `fix` (yaw correction).
 4. ❓ Default FOV 50° is a guess for a phone main camera in portrait; tune in ⚙︎, then change the default in `settings`.
 5. ✅ **Deploy**: `infra/deploy.sh` works end to end (two bugs fixed: paginated `list-apps` query, `--no-enable-auto-build`).
    App `whats-that-plane` = `dul2l469locqb`, us-east-1, **https://main.dul2l469locqb.amplifyapp.com/**. It was deployed

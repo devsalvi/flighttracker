@@ -18,15 +18,17 @@
   const MAX_EDGE_ARROWS = 3;
   const FT = 0.3048, KT = 0.514444, NM = 1852, MI = 1609.344;
 
-  const settings = load('settings', { offset: 0, fov: 50, radius: 100, demo: false, debug: false });
+  const settings = load('settings', { v: 2, offset: 0, fov: 50, radius: 100, demo: false, debug: false, mirror: false });
+  if (settings.v !== 2) { settings.offset = 0; settings.v = 2; save(); }   // v1 stored the offset with the opposite sign
 
   // ------------------------------------------------------------------ state
   const S = {
     started: false,
     filter: 'all',
     obs: null,                // { lat, lon, alt(m) }
-    orient: null,             // { alpha, beta, gamma, absolute }
+    orient: null,             // { alpha, beta, gamma, absolute, heading }
     orientSeen: false,
+    yawFix: null,             // deg to rotate the gyro frame so it agrees with the compass (iOS); low-passed
     mouseLook: null,          // desktop fallback { az, el }
     aircraft: new Map(),      // hex -> record
     fetchedAt: 0,
@@ -61,6 +63,8 @@
   bindRange('s-radius', 'v-radius', 'radius', (v) => `${v} nm`);
   $('s-demo').checked = settings.demo;
   $('s-demo').addEventListener('change', (e) => { settings.demo = e.target.checked; save(); S.aircraft.clear(); poll(); });
+  $('s-mirror').checked = settings.mirror;
+  $('s-mirror').addEventListener('change', (e) => { settings.mirror = e.target.checked; settings.offset = 0; S.yawFix = null; save(); });
   $('s-debug').checked = settings.debug;
   $('s-debug').addEventListener('change', (e) => { settings.debug = e.target.checked; save(); el.debug.hidden = !settings.debug; });
   el.debug.hidden = !settings.debug;
@@ -99,26 +103,28 @@
 
   // ------------------------------------------------------------------ sensors
   async function requestOrientation() {
+    let res = 'granted';
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      const res = await DeviceOrientationEvent.requestPermission();    // iOS 13+, must be inside a user gesture
-      if (res !== 'granted') throw new Error('compass permission denied');
+      try { res = await DeviceOrientationEvent.requestPermission(); }   // iOS 13+, must be inside a user gesture
+      catch (e) { res = e.message || String(e); }
     }
+    // Listen regardless: a "denied" browser simply never fires, and it lets synthetic events through in tests.
     if ('ondeviceorientationabsolute' in window) {
       window.addEventListener('deviceorientationabsolute', onOrient, true);
     }
     window.addEventListener('deviceorientation', onOrient, true);
+    if (res !== 'granted') throw new Error(`compass permission ${res}`);
   }
 
   function onOrient(e) {
     if (e.alpha == null && e.webkitCompassHeading == null) return;
     // Prefer absolute events; ignore relative ones once we've had an absolute one.
     if (e.type === 'deviceorientation' && S.orient && S.orient.absolute && e.webkitCompassHeading == null) return;
-    let alpha = e.alpha, absolute = e.absolute === true || e.type === 'deviceorientationabsolute';
-    if (e.webkitCompassHeading != null) {          // iOS: compass heading is clockwise-from-north; alpha is counter-clockwise
-      alpha = (360 - e.webkitCompassHeading) % 360;
-      absolute = true;
-    }
-    S.orient = { alpha, beta: e.beta || 0, gamma: e.gamma || 0, absolute };
+    const heading = e.webkitCompassHeading != null && Number.isFinite(e.webkitCompassHeading) ? e.webkitCompassHeading : null;
+    // Keep alpha/beta/gamma exactly as the gyro fusion gives them (they only make sense as a set — near an upright
+    // pose alpha and gamma jump together). iOS's alpha is relative; the compass heading pins it down in cameraBasis().
+    S.orient = { alpha: e.alpha || 0, beta: e.beta || 0, gamma: e.gamma || 0,
+      absolute: e.absolute === true || e.type === 'deviceorientationabsolute' || heading != null, heading };
     S.orientSeen = true;
   }
 
@@ -166,7 +172,7 @@
   function ingest(list, source, serverNow) {
     const now = Date.now();
     if (serverNow && serverNow < 1e12) serverNow *= 1000;   // adsb.fi reports seconds, readsb (adsb.lol) milliseconds
-    const skew = serverNow ? now - serverNow : 0;   // server "now" may lag; normalise to local clock
+    const skew = serverNow ? clamp(now - serverNow, 0, 15000) : 0;   // server "now" lags a little; a big gap is a bad phone clock, ignore it
     const seen = new Set();
     for (const a of list) {
       if (a.lat == null || a.lon == null) continue;
@@ -179,9 +185,9 @@
         type: a.t || '',
         desc: a.desc || '',
         lat: a.lat, lon: a.lon, altFt,
-        gs: numOr(a.gs, 0), track: numOr(a.track, numOr(a.true_heading, 0)),
+        gs: numOr(a.gs, 0), track: numOr(a.track, numOr(a.true_heading, null)),
         vr: numOr(a.baro_rate, numOr(a.geom_rate, 0)),
-        posAt: now - ((a.seen_pos || 0) * 1000) - Math.max(0, skew),
+        posAt: now - ((a.seen_pos || 0) * 1000) - skew,
       });
       S.aircraft.set(a.hex, rec);
       seen.add(a.hex);
@@ -228,8 +234,8 @@
   // Dead-reckon an aircraft to "now" using ground speed / track / vertical rate.
   function propagate(a, now) {
     const dt = clamp((now - a.posAt) / 1000, 0, 90);
-    const d = a.gs * KT * dt;                              // metres along track
-    const tr = a.track * Math.PI / 180;
+    const d = a.track == null ? 0 : a.gs * KT * dt;        // metres along track (unknown track: stay put)
+    const tr = (a.track || 0) * Math.PI / 180;
     const lat = a.lat + (d * Math.cos(tr)) / 111320;
     const lon = a.lon + (d * Math.sin(tr)) / (111320 * Math.cos(a.lat * Math.PI / 180));
     const altFt = a.altFt + a.vr * dt / 60;
@@ -264,8 +270,8 @@
       const ml = S.mouseLook || { az: 0, el: 20 };
       return basisFromAzEl(ml.az, ml.el);
     }
-    const d = Math.PI / 180;
-    const A = ((S.orient.alpha + settings.offset) % 360) * d, B = S.orient.beta * d, G = S.orient.gamma * d;
+    const d = Math.PI / 180, o = S.orient;
+    const A = o.alpha * d, B = o.beta * d, G = o.gamma * d;
     const cA = Math.cos(A), sA = Math.sin(A), cB = Math.cos(B), sB = Math.sin(B), cG = Math.cos(G), sG = Math.sin(G);
     // W3C rotation matrix R = Rz(alpha)·Rx(beta)·Ry(gamma); columns = device axes (x right, y top, z out of screen) in world (E,N,U).
     const R = [
@@ -280,7 +286,24 @@
     const ct = Math.cos(th), st = Math.sin(th);
     const right = [X[0] * ct - Y[0] * st, X[1] * ct - Y[1] * st, X[2] * ct - Y[2] * st];
     const up    = [X[0] * st + Y[0] * ct, X[1] * st + Y[1] * ct, X[2] * st + Y[2] * ct];
-    return { forward, right, up };
+
+    // Yaw: the gyro frame is smooth but (on iOS) relative; the compass is absolute but noisy. Rotate the whole
+    // frame about "up" by the slowly-filtered difference, so panning is instant and drift is still removed.
+    let yaw = settings.offset;                                // user/tap calibration, clockwise degrees
+    if (o.heading != null) {
+      // iOS reports the heading of the top edge when the phone is flat-ish and of the back camera when it's upright.
+      // Use whichever of those is more horizontal so we compare like with like.
+      const top = [Y[0], Y[1]], cam = [forward[0], forward[1]];
+      const ref = Math.hypot(top[0], top[1]) >= Math.hypot(cam[0], cam[1]) ? top : cam;
+      const azRef = Math.atan2(ref[0], ref[1]) / d;
+      const corr = wrap180((settings.mirror ? -o.heading : o.heading) - azRef);
+      S.yawFix = (S.yawFix == null || Math.abs(wrap180(corr - S.yawFix)) > 60)
+        ? corr : S.yawFix + wrap180(corr - S.yawFix) * 0.05;   // ~0.3 s time constant at 60 fps
+      yaw += S.yawFix;
+    }
+    const yr = yaw * d, cy = Math.cos(yr), sy = Math.sin(yr);
+    const turn = (v) => [v[0] * cy + v[1] * sy, -v[0] * sy + v[1] * cy, v[2]];   // azimuth += yaw
+    return { forward: turn(forward), right: turn(right), up: turn(up) };
   }
 
   function basisFromAzEl(azDeg, elDeg) {
@@ -383,7 +406,8 @@
     if (settings.debug) {
       const o = S.orient;
       el.debug.textContent = `obs ${S.obs ? `${S.obs.lat.toFixed(4)},${S.obs.lon.toFixed(4)} ${S.obs.alt.toFixed(0)}m` : '—'}\n` +
-        `orient ${o ? `α${o.alpha.toFixed(0)} β${o.beta.toFixed(0)} γ${o.gamma.toFixed(0)} ${o.absolute ? 'abs' : 'REL'}` : 'none'} offset ${settings.offset}\n` +
+        `orient ${o ? `α${o.alpha.toFixed(0)} β${o.beta.toFixed(0)} γ${o.gamma.toFixed(0)} ${o.absolute ? 'abs' : 'REL'}` : 'none'}` +
+        ` hdg ${o && o.heading != null ? o.heading.toFixed(0) : '—'} fix ${S.yawFix == null ? '—' : S.yawFix.toFixed(0)} offset ${settings.offset}${settings.mirror ? ' mirrored' : ''}\n` +
         `cam az ${camAz.toFixed(1)} el ${camEl.toFixed(1)} · visible ${visible.length} off ${offscreen.length} · src ${S.source}\n` +
         (lock ? `lock ${lock.a.hex} az ${lock.g.az.toFixed(1)} el ${lock.g.el.toFixed(1)} rng ${(lock.g.range / MI).toFixed(1)}mi off ${lock.angle.toFixed(1)}°` : '');
     }
